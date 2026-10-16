@@ -1,0 +1,5 @@
+# Post-training evaluation and publication figures.  Install after
+# requirements-training.txt inside the manipulation environment.
+matplotlib>=3.9,<4
+scipy>=1.13,<2
+

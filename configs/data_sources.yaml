@@ -1,0 +1,9 @@
+providers:
+  cn: {primary: tushare, token_env: TUSHARE_TOKEN}
+  hk: {primary: yfinance, backup: akshare}
+  us: {primary: yfinance, backup: tushare}
+stage0:
+  cn_trade_dates: 2
+  hk_symbols: ["0005.HK", "0700.HK", "0941.HK"]
+  us_symbols: ["AAPL", "MSFT", "BRK-B"]
+  years: [2023, 2024]

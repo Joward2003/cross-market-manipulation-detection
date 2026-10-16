@@ -1,0 +1,17 @@
+period:
+  buffer_start: "2009-01-01"
+  formal_start: "2010-01-01"
+  formal_end: "2025-12-31"
+  cross_market_start: "2015-01-01"
+runtime:
+  max_attempts: 8
+  base_backoff_seconds: 2
+  max_backoff_seconds: 300
+  jitter_seconds: 3
+  timeout_seconds: 30
+  heartbeat_seconds: 30
+  stale_hours: 2
+rate_limits:
+  tushare: {requests_per_minute: 40, concurrency: 1}
+  yfinance: {requests_per_minute: 20, concurrency: 2}
+  akshare: {requests_per_minute: 15, concurrency: 1}

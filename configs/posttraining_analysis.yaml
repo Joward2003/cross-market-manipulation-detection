@@ -1,0 +1,65 @@
+version: 1
+analysis_id: final_20260819
+
+paths:
+  runs_root: runs/openbayes_cli_download_20260801
+  feature_panel: data/processed/unlabeled_feature_datasets/base_feature_panel/market=cn/year=*/part.parquet
+  events_workbook: outputs/csrc_a_share_manipulation_event_panel_2012_2025.xlsx
+  events_sheet: A股严格可用
+  output_root: results/final_20260819
+
+sample:
+  primary_start_year: 2018
+  minimum_scored_days: 3
+  candidate_coverage_ratio: 0.80
+  exclude_every_regulated_symbol: true
+
+matching:
+  controls_per_event: 5
+  exact_exchange: true
+  minimum_exact_exchange_candidates: 30
+  industry_mismatch_penalty: 0.50
+  exchange_mismatch_penalty: 2.00
+  features:
+    cumulative_market_adjusted_return: 3.0
+    realized_return_volatility: 1.5
+    mean_turnover_shock: 2.0
+    mean_relative_volume: 2.0
+    mean_intraday_range: 1.0
+    log_median_circulating_market_value: 3.0
+    log_median_listing_age: 0.75
+    mean_log_amihud: 2.0
+    extreme_return_share: 1.5
+    mean_absolute_ma_deviation: 1.0
+
+inference:
+  bootstrap_repetitions: 2000
+  permutation_repetitions: 5000
+  random_seed: 20260819
+
+# These four runs implement the user's requested descriptive comparison.  The
+# selection rule is recorded explicitly and is never substituted for the full
+# 15-run seed summary.
+representative_runs:
+  a_only:
+    seed: 20260729
+    label: A股弱基准
+    selection_rule: minimum observed Hit@1% among A-only seeds
+  a_us_coral:
+    seed: 20260727
+    label: A股 + 美股（CORAL）
+    selection_rule: strongest preselected A+US representative run
+  a_hk_coral:
+    seed: 20260727
+    label: A股 + 港股（CORAL）
+    selection_rule: strongest preselected A+HK representative run
+  a_hk_us_coral:
+    seed: 20260729
+    label: A股 + 港股 + 美股（CORAL）
+    selection_rule: strongest preselected joint-market representative run
+
+figures:
+  reference_repository: https://github.com/ChenLiu-1996/figures4papers
+  reference_commit: 6790a93af3552539d955d77181c818916e1700b7
+  formats: [png, pdf]
+  dpi: 300

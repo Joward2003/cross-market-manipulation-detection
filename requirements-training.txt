@@ -1,0 +1,9 @@
+# Install PyTorch with the CUDA index shown in TRAINING.md before this file.
+numpy>=1.26,<3
+pandas>=2.2,<3
+pyarrow>=16,<20
+duckdb>=1.0,<2
+PyYAML>=6.0,<7
+scikit-learn>=1.5,<2
+tqdm>=4.66,<5
+openpyxl>=3.1,<4

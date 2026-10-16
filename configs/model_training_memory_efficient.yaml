@@ -1,0 +1,277 @@
+version: 1
+purpose: "Memory-efficient cross-market unlabeled price-volume representation learning"
+
+reproducibility:
+  seeds: [20260727, 20260728, 20260729]
+  deterministic_validation: true
+  save_rng_state: true
+
+data:
+  catalog: data/processed/unlabeled_feature_datasets/dataset_catalog.json
+  parquet_root: data/processed/unlabeled_feature_datasets/base_feature_panel
+  sequence_store: data/analysis/sequence_store
+  window_length: 60
+  train_stride: 5
+  evaluation_stride: 1
+  require_feature_ready: true
+  main_features:
+    - log_return
+    - market_adjusted_return
+    - intraday_range
+    - log_rolling_volatility_20
+    - relative_volume_60
+    - turnover_shock_60
+    - log_amihud_20
+    - price_volume_corr_20
+    - ma_deviation_20
+    - close_location_value
+    - downside_volatility_20
+    - tail_return_20
+  context_only_features:
+    - listing_age_log_days
+    - zero_volume_flag
+    - suspension_resume_flag
+  storage:
+    feature_dtype: float32
+    date_dtype: int32
+    domain_dtype: uint8
+    offset_dtype: int64
+    mmap_mode: r
+    never_materialize_expanded_windows: true
+
+split:
+  primary:
+    train_years: [2011, 2012, 2013, 2014, 2015, 2016]
+    validation_years: [2017]
+    external_test_years: [2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025]
+    embargo_trading_days: 60
+    labels_used_for_training: false
+  historical_enrichment:
+    years: [2012, 2013, 2014, 2015, 2016, 2017]
+    interpretation: "secondary transductive enrichment analysis only"
+  entity_disjoint_robustness:
+    exclude_external_case_and_control_symbols_from_fit: true
+
+scaling:
+  method: median_mad
+  fit_scope: training_fold_market
+  mad_consistency_constant: 1.4826
+  epsilon: 1.0e-6
+  clip: [-8.0, 8.0]
+
+datasets:
+  a_only:
+    markets: [cn]
+    market_mix: {cn: 1.0}
+    alignment: none
+  a_us_coral:
+    markets: [cn, us]
+    market_mix: {cn: 0.5, us: 0.5}
+    alignment: coral
+  a_hk_coral:
+    markets: [cn, hk]
+    market_mix: {cn: 0.5, hk: 0.5}
+    alignment: coral
+  a_hk_us_coral:
+    markets: [cn, hk, us]
+    market_mix: {cn: 0.5, hk: 0.25, us: 0.25}
+    alignment: coral
+  a_us_dann:
+    markets: [cn, us]
+    market_mix: {cn: 0.5, us: 0.5}
+    alignment: dann
+  a_hk_dann:
+    markets: [cn, hk]
+    market_mix: {cn: 0.5, hk: 0.5}
+    alignment: dann
+  a_hk_us_dann:
+    markets: [cn, hk, us]
+    market_mix: {cn: 0.5, hk: 0.25, us: 0.25}
+    alignment: dann
+
+sampler:
+  hierarchy: [market, window_end]
+  # Unique-symbol batches are not imposed because building an additional
+  # multi-million-row symbol sampler adds memory without changing the
+  # label-free objective; random endpoint collisions are rare at this scale.
+  one_symbol_window_per_minibatch: false
+  replacement: true
+  steps_per_epoch: 4000
+  validation_windows_per_market: 50000
+  validation_steps: 200
+
+encoder:
+  family: ts2vec_dilated_tcn
+  input_dim: 12
+  hidden_dim: 64
+  output_dim: 128
+  residual_blocks: 6
+  convolutions_per_block: 2
+  kernel_size: 3
+  dilations: [1, 2, 4, 8, 16, 32]
+  normalization: layer_norm
+  activation: gelu
+  dropout: 0.10
+  window_pool:
+    components: [last, mean, max]
+    projection_dim: 128
+  augmentation:
+    crop_min_length: 30
+    crop_max_length: 60
+    point_mask_probability: 0.10
+    contiguous_mask_probability: 0.10
+    use_time_reversal: false
+    use_magnitude_scaling: false
+    use_large_gaussian_noise: false
+
+objective:
+  ts2vec:
+    hierarchical_instance_weight: 0.5
+    hierarchical_temporal_weight: 0.5
+  dann:
+    head_hidden_dim: 64
+    dropout: 0.10
+    loss_weight_max: 0.10
+    ssl_only_warmup_fraction: 0.20
+    ramp_end_fraction: 0.50
+    gradient_reversal: true
+    market_balanced_loss: true
+  coral:
+    # This multiplies the conventional 1/(4d^2) CORAL covariance distance.
+    # It is tuned only on unlabeled 2017 representation diagnostics.
+    loss_weight: 5000.0
+
+optimization:
+  epochs: 30
+  batch_size: 128
+  oom_fallback_batch_size: 64
+  gradient_accumulation_steps: 1
+  optimizer: adamw
+  learning_rate: 0.001
+  weight_decay: 0.0001
+  scheduler: cosine
+  warmup_fraction: 0.05
+  gradient_clip_norm: 1.0
+  amp: fp16
+  allow_tf32: true
+  early_stopping:
+    metric: validation_ts2vec_loss
+    patience: 5
+    min_delta: 0.0001
+
+loader:
+  workers: 2
+  pin_memory: true
+  persistent_workers: true
+  prefetch_factor: 2
+  batch_to_gpu_non_blocking: true
+
+representation_quality:
+  monitor:
+    - validation_ts2vec_loss
+    - embedding_dimension_std
+    - effective_rank
+    - duplicate_embedding_rate
+    - domain_probe_accuracy
+  collapse_floor_dimension_std: 0.01
+  domain_probe:
+    classifier: logistic_regression
+    fit_on_frozen_embeddings: true
+    balanced_accuracy: true
+
+anomaly_heads:
+  fit_target_market_only: cn
+  fit_sample_size: 250000
+  sample_method: year_symbol_balanced_reservoir
+  isolation_forest:
+    enabled: true
+    n_estimators: 300
+    max_samples: 65536
+    contamination: auto
+    n_jobs: -1
+  robust_svdd:
+    enabled: true
+    center: coordinate_median
+    distance: diagonal_robust_mahalanobis
+    nu_candidates: [0.01, 0.02, 0.05]
+    primary_nu: 0.02
+    trainable_projection_head: false
+  pseudo_label_classifier:
+    enabled_as_extension_only: true
+    high_risk_quantile: 0.98
+    low_risk_quantile: 0.50
+    input: frozen_embedding_only
+    hidden_dims: [64, 16]
+    dropout: 0.20
+    require_oof_score_improvement: true
+
+scoring:
+  stream_embeddings: true
+  persist_full_embeddings: false
+  persist:
+    - stock_code
+    - trade_date
+    - market
+    - anomaly_score
+    - score_percentile_same_day
+    - model_id
+    - fold_id
+  score_dtype: float32
+  embedding_cache_dtype: float16
+  keep_embeddings_for:
+    - regulator_event_windows
+    - difficult_control_windows
+    - anomaly_head_reservoir
+
+evaluation:
+  labels_external_only: true
+  difficult_controls_training_role: none
+  primary_metrics:
+    - event_max_same_day_percentile
+    - event_mean_same_day_percentile
+    - hit_at_1_percent
+    - hit_at_5_percent
+    - matched_case_control_auprc
+  secondary_metrics:
+    - auroc
+    - control_false_alert_rate
+  inference:
+    bootstrap_unit: enforcement_case
+    bootstrap_repetitions: 2000
+    matched_set_permutation_repetitions: 5000
+
+explanation:
+  method: fixed_window_shap
+  explain_final_retained_score: true
+  time_bins:
+    - [-60, -51]
+    - [-50, -41]
+    - [-40, -31]
+    - [-30, -21]
+    - [-20, -11]
+    - [-10, -1]
+  feature_groups:
+    return_trend:
+      [log_return, market_adjusted_return, ma_deviation_20, tail_return_20]
+    volatility_pressure:
+      [intraday_range, log_rolling_volatility_20, downside_volatility_20, close_location_value]
+    trading_activity:
+      [relative_volume_60, turnover_shock_60]
+    liquidity:
+      [log_amihud_20]
+    price_volume_relation:
+      [price_volume_corr_20]
+  background_windows: 32
+  coalition_budget: 256
+  perturbation_batch_size: 128
+  dynamic_window_shap_case_studies_only: true
+
+runtime:
+  train_models_sequentially: true
+  max_gpu_memory_gb_soft_limit: 6.5
+  checkpoint_every_epochs: 1
+  keep_best_and_last_only: true
+  resume_optimizer_state: true
+  write_jsonl_metrics: true
+  linux_filesystem_required: true
+  avoid_mnt_c_for_training_data: true
